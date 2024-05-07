@@ -46,7 +46,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 DEBUG = False
-VERSION = "0.1.11"
+VERSION = "0.1.20"
 
 DEFAULT_GROUP_NAME = "DEFAULT_GROUP"
 DEFAULT_NAMESPACE = ""
@@ -347,7 +347,22 @@ class NacosClient:
       self.no_snapshot = False
       self.proxies = None
       self.logDir = logDir
-      logger.info("[client-init] endpoint:%s, tenant:%s" % (endpoint, namespace))
+      self.tenant = self.__get_tenant()
+      logger.info("[client-init] endpoint:%s, namespace:%s, tenant:%s" % (endpoint, namespace, self.tenant))
+
+    def __get_tenant(self):
+        if self.namespace == '':
+            tenant = ''
+        else:
+            resp = self._do_sync_req('/nacos/v1/console/namespaces', None, None, None, self.default_timeout,
+                              "GET", "namespaces")
+            c = resp.read()
+            content = json.loads(c.decode("UTF-8"))
+            for item in content['data']:
+                if item['namespaceShowName'] == self.namespace:
+                    tenant = item['namespace']
+            logger.info("[get-tenant] tenant: %s" % (tenant))
+        return tenant
 
     def set_options(self, **kwargs):
         for k, v in kwargs.items():
@@ -376,8 +391,8 @@ class NacosClient:
             "dataId": data_id,
             "group": group,
         }
-        if self.namespace:
-            params["tenant"] = self.namespace
+        if self.tenant:
+            params["tenant"] = self.tenant
 
         try:
             resp = self._do_sync_req("/nacos/v1/cs/configs", None, None, params,
@@ -416,8 +431,8 @@ class NacosClient:
             "content": content.encode("UTF-8"),
         }
 
-        if self.namespace:
-            params["tenant"] = self.namespace
+        if self.tenant:
+            params["tenant"] = self.tenant
 
         if app_name:
             params["appName"] = app_name
@@ -454,8 +469,8 @@ class NacosClient:
             "dataId": data_id,
             "group": group,
         }
-        if self.namespace:
-            params["tenant"] = self.namespace
+        if self.tenant:
+            params["tenant"] = self.tenant
 
         cache_key = group_key(data_id, group, self.namespace)
         # get from failover
@@ -530,8 +545,8 @@ class NacosClient:
             "pageNo": page_no,
             "pageSize": page_size,
         }
-        if self.namespace:
-            params["tenant"] = self.namespace
+        if self.tenant:
+            params["tenant"] = self.tenant
 
         cache_key = group_key("", "", self.namespace)
         # get from failover
@@ -633,10 +648,12 @@ class NacosClient:
             key_list = self.process_mgr.list()
             key_list.append(cache_key)
             sys_os = platform.system()
+            if sys_os == 'Windows' or sys_os == 'Darwin':
+                puller = Thread(target=self._do_pulling, args=(key_list, self.notify_queue))
+            else:
+                puller = Process(target=self._do_pulling, args=(key_list, self.notify_queue))
 
-            puller = Thread(target=self._do_pulling, args=(key_list, self.notify_queue))
-            puller.setDaemon(True)
-
+            puller.daemon = True
             puller.start()
             self.puller_mapping[cache_key] = (puller, key_list)
 
@@ -883,7 +900,7 @@ class NacosClient:
                 headers["Spas-Signature"] = self.__do_sign(sign_str, sk)
 
         # naming signature
-        else:
+        elif "naming" == module:
             group = params_to_sign.get("groupName")
             service_name = params_to_sign.get("serviceName")
 
@@ -932,8 +949,8 @@ class NacosClient:
         }
         self._build_metadata(metadata, params)
 
-        if self.namespace:
-            params["namespaceId"] = self.namespace
+        if self.tenant:
+            params["namespaceId"] = self.tenant
 
         try:
             resp = self._do_sync_req("/nacos/v1/ns/instance", None, None, params, self.default_timeout, "POST", "naming")
@@ -965,8 +982,8 @@ class NacosClient:
         if cluster_name is not None:
             params["clusterName"] = cluster_name
 
-        if self.namespace:
-            params["namespaceId"] = self.namespace
+        if self.tenant:
+            params["namespaceId"] = self.tenant
 
         try:
             resp = self._do_sync_req("/nacos/v1/ns/instance", None, None, params, self.default_timeout, "DELETE", "naming")
@@ -1007,8 +1024,8 @@ class NacosClient:
 
         self._build_metadata(metadata, params)
 
-        if self.namespace:
-            params["namespaceId"] = self.namespace
+        if self.tenant:
+            params["namespaceId"] = self.tenant
 
         try:
             resp = self._do_sync_req("/nacos/v1/ns/instance", None, None, params, self.default_timeout, "PUT", "naming")
@@ -1043,7 +1060,7 @@ class NacosClient:
         if clusters is not None:
             params["clusters"] = clusters
 
-        namespace_id = namespace_id or self.namespace
+        namespace_id = self.tenant or self.namespace
         if namespace_id:
             params["namespaceId"] = namespace_id
 
@@ -1080,8 +1097,8 @@ class NacosClient:
             params["cluster"] = cluster_name
             params["clusterName"] = cluster_name
 
-        if self.namespace:
-            params["namespaceId"] = self.namespace
+        if self.tenant:
+            params["namespaceId"] = self.tenant
 
         try:
             resp = self._do_sync_req("/nacos/v1/ns/instance", None, params, None, self.default_timeout, "GET", "naming")
@@ -1125,8 +1142,8 @@ class NacosClient:
             "groupName": group_name
         }
 
-        if self.namespace:
-            params["namespaceId"] = self.namespace
+        if self.tenant:
+            params["namespaceId"] = self.tenant
 
         try:
             resp = self._do_sync_req("/nacos/v1/ns/instance/beat", None, params, None, self.default_timeout, "PUT", "naming")

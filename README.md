@@ -12,6 +12,9 @@ see: https://nacos.io/zh-cn/docs/open-API.html
 Python 2.7
 Python 3.6
 Python 3.7
+Python 3.8
+Python 3.9
+Python 3.10
 
 ### Supported Nacos version
 Nacos 0.8.0 ~ 1.3.2
