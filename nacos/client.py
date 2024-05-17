@@ -869,7 +869,6 @@ class NacosClient:
     def _inject_version_info(headers):
         headers.update({"User-Agent": "Nacos-Python-Client:v" + VERSION})
 
-
     def _inject_auth_info(self, headers, params, data, module="config"):
         if module == "login":
             return
@@ -1285,6 +1284,7 @@ class NacosClient:
 
     def __setstate__(self, state):
         self.__dict__.update(state)
+
 
 if DEBUG:
     NacosClient.set_debugging()
