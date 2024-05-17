@@ -10,6 +10,7 @@ import platform
 import socket
 import threading
 import time
+from http.client import HTTPResponse
 
 import nacos.client
 
@@ -258,14 +259,14 @@ class NacosClient:
             except Exception as ex:
                 logger.exception("get_server_from_url_task %s" % ex)
 
-    def initLog(self, logDir):
-        if logDir is None or logDir.strip() == "":
-            logDir = os.path.expanduser("~") + "/logs/nacos/"
-        if not logDir.endswith(os.path.sep):
-            logDir += os.path.sep
-        if not os.path.exists(logDir):
-            os.makedirs(logDir)
-        logPath = logDir + 'nacos-client-python.log'
+    def init_log(self, log_dir):
+        if log_dir is None or log_dir.strip() == "":
+            log_dir = os.path.expanduser("~") + "/logs/nacos/"
+        if not log_dir.endswith(os.path.sep):
+            log_dir += os.path.sep
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        logPath = log_dir + 'nacos-client-python.log'
         file_handler = logging.FileHandler(logPath)
         if nacos.NacosClient.debug:
             file_handler.setLevel(logging.DEBUG)
@@ -278,7 +279,7 @@ class NacosClient:
     def __init__(self, server_addresses=None, endpoint=None, namespace=None, ak=None,
                  sk=None, username=None, password=None, logDir=None):
         self.server_list = list()
-        self.initLog(logDir)
+        self.init_log(logDir)
         try:
             if server_addresses is not None and server_addresses.strip() != "":
                 for server_addr in server_addresses.strip().split(","):
@@ -343,9 +344,12 @@ class NacosClient:
         self.proxies = None
         self.logDir = logDir
         self.tenant = self.__get_tenant()
+        self.out_time = 0
+        self.access_token = ""
         logger.info("[client-init] endpoint:%s, namespace:%s, tenant:%s" % (endpoint, namespace, self.tenant))
 
     def __get_tenant(self):
+        tenant = ''
         if self.namespace == '':
             tenant = ''
         else:
@@ -356,7 +360,7 @@ class NacosClient:
             for item in content['data']:
                 if item['namespaceShowName'] == self.namespace:
                     tenant = item['namespace']
-            logger.info("[get-tenant] tenant: %s" % (tenant))
+            logger.info("[get-tenant] tenant: %s" % tenant)
         return tenant
 
     def set_options(self, **kwargs):
@@ -823,7 +827,7 @@ class NacosClient:
         self.callback_tread_pool = pool.ThreadPool(self.callback_thread_num)
         self.process_mgr = Manager()
         t = Thread(target=self._process_polling_result)
-        t.setDaemon(True)
+        t.daemon = True
         t.start()
         logger.info("[init-pulling] init completed")
 
@@ -862,7 +866,19 @@ class NacosClient:
     def _inject_version_info(headers):
         headers.update({"User-Agent": "Nacos-Python-Client:v" + VERSION})
 
+
     def _inject_auth_info(self, headers, params, data, module="config"):
+        if module == "login":
+            return
+        if self.username and self.password:
+            if time.time() > self.out_time:
+                data: HTTPResponse = self._do_sync_req("/nacos/v1/auth/login", None, None,
+                                                       {"username": self.username, "password": self.password}, None,
+                                                       "POST", "login")
+                body = json.loads(data.read())
+                self.access_token = body["accessToken"]
+                self.out_time = time.time() + body["tokenTtl"] - 1
+            params["accessToken"] = self.access_token
         if self.username and self.password and params:
             params.update({"username": self.username, "password": self.password})
         if not self.auth_enabled:
