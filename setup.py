@@ -70,7 +70,9 @@ setup(
     description="Python client for Nacos.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    install_requires=[],
+    install_requires=[
+        'loguru'
+    ],
     # $ setup.py publish support.
     cmdclass={
         'upload': UploadCommand,

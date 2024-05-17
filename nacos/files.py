@@ -1,6 +1,7 @@
-import logging
 import os.path
 import sys
+
+from loguru import logger
 
 try:
     import fcntl
@@ -8,8 +9,6 @@ try:
     use_fcntl = True
 except:
     use_fcntl = False
-
-logger = logging.getLogger("nacos")
 
 
 def read_file_str(base, key):

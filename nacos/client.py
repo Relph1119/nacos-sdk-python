@@ -8,10 +8,11 @@ import logging
 import os
 import platform
 import socket
+import sys
 import threading
 import time
 from http.client import HTTPResponse
-
+from loguru import logger
 import nacos.client
 
 try:
@@ -34,9 +35,6 @@ from .files import read_file_str, save_file, delete_file
 from .exception import NacosException, NacosRequestException
 from .listener import Event, SimpleListenerManager
 from .timer import NacosTimer, NacosTimerManager
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 DEBUG = False
 VERSION = "0.1.20"
@@ -218,12 +216,8 @@ class NacosClient:
     @staticmethod
     def set_debugging():
         if not NacosClient.debug:
-            global logger
-            logger = logging.getLogger("nacos")
-            handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s:%(message)s"))
-            logger.addHandler(handler)
-            logger.setLevel(logging.DEBUG)
+            fmt = "%(asctime)s %(levelname)s %(name)s:%(message)s"
+            logger.add(sys.stderr, level=logging.DEBUG, format=fmt)
             NacosClient.debug = True
 
     @staticmethod
@@ -267,19 +261,16 @@ class NacosClient:
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         logPath = log_dir + 'nacos-client-python.log'
-        file_handler = logging.FileHandler(logPath)
+        fmt = '%(asctime)s - %(levelname)s - %(message)s'
         if nacos.NacosClient.debug:
-            file_handler.setLevel(logging.DEBUG)
+            logger.add(logPath, level="DEBUG", format=fmt)
         else:
-            file_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+            logger.add(logPath, level="INFO", format=fmt)
 
     def __init__(self, server_addresses=None, endpoint=None, namespace=None, ak=None,
-                 sk=None, username=None, password=None, logDir=None, auth_key=None, auth_value=None):
+                 sk=None, username=None, password=None, log_dir=None, auth_key=None, auth_value=None):
         self.server_list = list()
-        self.init_log(logDir)
+        self.init_log(log_dir)
         try:
             if server_addresses is not None and server_addresses.strip() != "":
                 for server_addr in server_addresses.strip().split(","):
@@ -345,17 +336,15 @@ class NacosClient:
         self.snapshot_base = DEFAULTS["SNAPSHOT_BASE"]
         self.no_snapshot = False
         self.proxies = None
-        self.logDir = logDir
-        self.tenant = self.__get_tenant()
+        self.logDir = log_dir
         self.out_time = 0
         self.access_token = ""
+        self.tenant = self.__get_tenant()
         logger.info("[client-init] endpoint:%s, namespace:%s, tenant:%s" % (endpoint, namespace, self.tenant))
 
     def __get_tenant(self):
         tenant = ''
-        if self.namespace == '':
-            tenant = ''
-        else:
+        if self.namespace:
             resp = self._do_sync_req('/nacos/v1/console/namespaces', None, None, None, self.default_timeout,
                                      "GET", "namespaces")
             c = resp.read()
@@ -1135,15 +1124,14 @@ class NacosClient:
 
     def send_heartbeat(self, service_name, ip, port, cluster_name=None, weight=1.0, metadata=None, ephemeral=True,
                        group_name=DEFAULT_GROUP_NAME):
-        logger.info("[send-heartbeat] ip:%s, port:%s, service_name:%s, namespace:%s" % (ip, port, service_name,
-                                                                                        self.namespace))
+        logger.debug("[send-heartbeat] ip:%s, port:%s, service_name:%s, namespace:%s" % (ip, port, service_name,
+                                                                                         self.namespace))
         beat_data = {
             "serviceName": service_name,
             "ip": ip,
             "port": port,
             "weight": weight,
             "ephemeral": ephemeral
-
         }
 
         if cluster_name is not None:
@@ -1168,8 +1156,8 @@ class NacosClient:
             resp = self._do_sync_req("/nacos/v1/ns/instance/beat", None, params, None, self.default_timeout, "PUT",
                                      "naming")
             c = resp.read()
-            logger.info("[send-heartbeat] ip:%s, port:%s, service_name:%s, namespace:%s, server response:%s" %
-                        (ip, port, service_name, self.namespace, c))
+            logger.debug("[send-heartbeat] ip:%s, port:%s, service_name:%s, namespace:%s, server response:%s" %
+                         (ip, port, service_name, self.namespace, c))
             return json.loads(c.decode("UTF-8"))
         except HTTPError as e:
             if e.code == HTTPStatus.FORBIDDEN:
