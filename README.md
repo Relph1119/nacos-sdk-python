@@ -144,7 +144,7 @@ Publish one data item to Nacos.
 Remove one data item from Nacos.
 
 ### Register Instance
->`NacosClient.add_naming_instance(service_name, ip, port, cluster_name, weight, metadata, enable, healthy)`
+>`NacosClient.add_naming_instance(service_name, ip, port, cluster_name, weight, metadata, enable, healthy, ak, sk)`
 * `param` *service_name*  **required** Service name to register to.
 * `param` *ip*  **required** IP of the instance.
 * `param` *port* **required** Port of the instance.
@@ -153,6 +153,8 @@ Remove one data item from Nacos.
 * `param` *metadata* Extra info in JSON string format or dict format
 * `param` *enable* A bool value to determine whether instance is enabled or not.
 * `param` *healthy* A bool value to determine whether instance is healthy or not.
+* `param` *ak* - The accessKey to authenticate. | default: null
+* `param` *sk* - The secretKey to authentication. | default: null
 * `param` *ephemeral* A bool value to determine whether instance is ephemeral or not.
 * `return` True if success or an exception will be raised.
 

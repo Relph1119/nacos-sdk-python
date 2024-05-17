@@ -942,7 +942,8 @@ class NacosClient:
                 params["metadata"] = metadata
 
     def add_naming_instance(self, service_name, ip, port, cluster_name=None, weight=1.0, metadata=None,
-                            enable=True, healthy=True, ephemeral=True, group_name=DEFAULT_GROUP_NAME):
+                            enable=True, healthy=True, ephemeral=True, group_name=DEFAULT_GROUP_NAME,
+                            ak=None, sk=None):
         logger.info("[add-naming-instance] ip:%s, port:%s, service_name:%s, namespace:%s" % (
             ip, port, service_name, self.namespace))
 
@@ -955,7 +956,9 @@ class NacosClient:
             "healthy": healthy,
             "clusterName": cluster_name,
             "ephemeral": ephemeral,
-            "groupName": group_name
+            "groupName": group_name,
+            "ak": ak,
+            "sk": sk
         }
         self._build_metadata(metadata, params)
 
