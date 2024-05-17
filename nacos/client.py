@@ -2,14 +2,14 @@
 import base64
 import functools
 import hashlib
+import hmac
+import json
 import logging
 import os
-import socket
-import json
 import platform
+import socket
 import threading
 import time
-import hmac
 
 import nacos.client
 
@@ -20,20 +20,12 @@ except ImportError:
 
 from multiprocessing import Process, Manager, Queue, pool
 from threading import RLock, Thread
+from multiprocessing import RLock as PRLock
 
-try:
-    # python3.6
-    from http import HTTPStatus
-    from urllib.request import Request, urlopen, ProxyHandler, HTTPSHandler, build_opener
-    from urllib.parse import urlencode, unquote_plus, quote
-    from urllib.error import HTTPError, URLError
-except ImportError:
-    # python2.7
-    import httplib as HTTPStatus
-    from urllib2 import Request, urlopen, HTTPError, URLError, ProxyHandler, HTTPSHandler, build_opener
-    from urllib import urlencode, unquote_plus, quote
-
-    base64.encodebytes = base64.encodestring
+from http import HTTPStatus
+from urllib.request import Request, urlopen, ProxyHandler, HTTPSHandler, build_opener
+from urllib.parse import urlencode, unquote_plus
+from urllib.error import HTTPError, URLError
 
 from .commons import synchronized_with_attr, truncate, python_version_bellow
 from .params import group_key, parse_key, is_valid
@@ -238,124 +230,127 @@ class NacosClient:
         return hashlib.md5(content.encode("UTF-8")).hexdigest() if content is not None else None
 
     def get_server_from_url(self, url):
-      server_list_content = urlopen(url, timeout=ADDRESS_SERVER_TIMEOUT).read()
-      default_port = 8848
-      server_list_temp = list()
-      if server_list_content:
-        for server_info in server_list_content.decode().strip().split("\n"):
-          sp = server_info.strip().split(":")
-          if len(sp) == 1:
-            # endpoint中没有指定port
-            server_list_temp.append((sp[0], default_port))
-          else:
-            try:
-              port = sp.strip().split("/")[0]
-              server_list_temp.append((sp[0], int(port)))
-            except ValueError:
-              logger.warning(
-                  "[get-server-list] bad server address:%s ignored" % server_info)
-        if (self.server_list != server_list_temp):
-          self.server_list = server_list_temp
-      return server_list_temp
-
+        server_list_content = urlopen(url, timeout=ADDRESS_SERVER_TIMEOUT).read()
+        default_port = 8848
+        server_list_temp = list()
+        if server_list_content:
+            for server_info in server_list_content.decode().strip().split("\n"):
+                sp = server_info.strip().split(":")
+                if len(sp) == 1:
+                    # endpoint中没有指定port
+                    server_list_temp.append((sp[0], default_port))
+                else:
+                    try:
+                        port = sp.strip().split("/")[0]
+                        server_list_temp.append((sp[0], int(port)))
+                    except ValueError:
+                        logger.warning(
+                            "[get-server-list] bad server address:%s ignored" % server_info)
+            if self.server_list != server_list_temp:
+                self.server_list = server_list_temp
+        return server_list_temp
 
     def get_server_from_url_task(self, url):
-      while (True):
-        try:
-          time.sleep(10)
-          self.get_server_from_url(url)
-        except Exception as ex:
-          logger.exception("get_server_from_url_task %s" % ex)
-
+        while True:
+            try:
+                time.sleep(10)
+                self.get_server_from_url(url)
+            except Exception as ex:
+                logger.exception("get_server_from_url_task %s" % ex)
 
     def initLog(self, logDir):
-      if logDir is None or logDir.strip() == "":
-        logDir = os.path.expanduser("~") + "/logs/nacos/"
-      if not logDir.endswith(os.path.sep):
-        logDir += os.path.sep
-      if not os.path.exists(logDir):
-        os.makedirs(logDir)
-      logPath = logDir + 'nacos-client-python.log'
-      file_handler = logging.FileHandler(logPath)
-      if nacos.NacosClient.debug:
-        file_handler.setLevel(logging.DEBUG)
-      else:
-        file_handler.setLevel(logging.INFO)
-      formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-      file_handler.setFormatter(formatter)
-      logger.addHandler(file_handler)
-
+        if logDir is None or logDir.strip() == "":
+            logDir = os.path.expanduser("~") + "/logs/nacos/"
+        if not logDir.endswith(os.path.sep):
+            logDir += os.path.sep
+        if not os.path.exists(logDir):
+            os.makedirs(logDir)
+        logPath = logDir + 'nacos-client-python.log'
+        file_handler = logging.FileHandler(logPath)
+        if nacos.NacosClient.debug:
+            file_handler.setLevel(logging.DEBUG)
+        else:
+            file_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
     def __init__(self, server_addresses=None, endpoint=None, namespace=None, ak=None,
-        sk=None, username=None, password=None, logDir=None):
-      self.server_list = list()
-      self.initLog(logDir)
-      try:
-        if server_addresses is not None and server_addresses.strip() != "":
-          for server_addr in server_addresses.strip().split(","):
-            self.server_list.append(parse_nacos_server_addr(server_addr.strip()))
-          logger.info("user server address  " + server_addresses)
-        elif endpoint is not None and endpoint.strip() != "":
-          url = endpoint.strip()
-          if ("?" not in endpoint):
-            url = url + "?namespace=" + namespace
-          else:
-            url = url + "&namespace=" + namespace
-          logger.info("address server url " + url)
-          self.get_server_from_url(url)
-          partial_task_function = functools.partial(self.get_server_from_url_task,
-                                                    url)
-          thread = threading.Thread(target=partial_task_function)
-          thread.daemon = True
-          thread.start()
+                 sk=None, username=None, password=None, logDir=None):
+        self.server_list = list()
+        self.initLog(logDir)
+        try:
+            if server_addresses is not None and server_addresses.strip() != "":
+                for server_addr in server_addresses.strip().split(","):
+                    self.server_list.append(parse_nacos_server_addr(server_addr.strip()))
+                logger.info("user server address  " + server_addresses)
+            elif endpoint is not None and endpoint.strip() != "":
+                url = endpoint.strip()
+                if "?" not in endpoint:
+                    url = url + "?namespace=" + namespace
+                else:
+                    url = url + "&namespace=" + namespace
+                logger.info("address server url " + url)
+                self.get_server_from_url(url)
+                partial_task_function = functools.partial(self.get_server_from_url_task,
+                                                          url)
+                thread = threading.Thread(target=partial_task_function)
+                thread.daemon = True
+                thread.start()
+            else:
+                logger.exception("[init] server address & endpoint must not both none")
+                raise ValueError('server address & endpoint must not both none')
+        except Exception as ex:
+            logger.exception("[init] bad server address for %s" % server_addresses)
+            raise ex
+
+        self.current_server = self.server_list[0]
+
+        self.endpoint = endpoint
+        self.namespace = namespace or DEFAULT_NAMESPACE or ""
+        self.ak = ak
+        self.sk = sk
+        self.username = username
+        self.password = password
+
+        if platform.system() == "windows":
+            self.server_list_lock = RLock()
         else:
-          logger.exception("[init] server address & endpoint must not both none")
-          raise ValueError('server address & endpoint must not both none')
-      except Exception as ex:
-        logger.exception("[init] bad server address for %s" % server_addresses)
-        raise ex
+            self.server_list_lock = PRLock()
+        self.server_offset = 0
 
-      self.current_server = self.server_list[0]
+        self.watcher_mapping = dict()
+        self.subscribed_local_manager = SubscribedLocalManager()
+        self.subscribe_timer_manager = NacosTimerManager()
+        if platform.system() == "windows":
+            self.pulling_lock = RLock()
+        else:
+            self.pulling_lock = PRLock()
+        self.puller_mapping = None
+        self.notify_queue = None
+        self.callback_tread_pool = None
+        self.process_mgr = None
 
-      self.endpoint = endpoint
-      self.namespace = namespace or DEFAULT_NAMESPACE or ""
-      self.ak = ak
-      self.sk = sk
-      self.username = username
-      self.password = password
-
-      self.server_list_lock = RLock()
-      self.server_offset = 0
-
-      self.watcher_mapping = dict()
-      self.subscribed_local_manager = SubscribedLocalManager()
-      self.subscribe_timer_manager = NacosTimerManager()
-      self.pulling_lock = RLock()
-      self.puller_mapping = None
-      self.notify_queue = None
-      self.callback_tread_pool = None
-      self.process_mgr = None
-
-      self.default_timeout = DEFAULTS["TIMEOUT"]
-      self.auth_enabled = self.ak and self.sk
-      self.cai_enabled = True
-      self.pulling_timeout = DEFAULTS["PULLING_TIMEOUT"]
-      self.pulling_config_size = DEFAULTS["PULLING_CONFIG_SIZE"]
-      self.callback_thread_num = DEFAULTS["CALLBACK_THREAD_NUM"]
-      self.failover_base = DEFAULTS["FAILOVER_BASE"]
-      self.snapshot_base = DEFAULTS["SNAPSHOT_BASE"]
-      self.no_snapshot = False
-      self.proxies = None
-      self.logDir = logDir
-      self.tenant = self.__get_tenant()
-      logger.info("[client-init] endpoint:%s, namespace:%s, tenant:%s" % (endpoint, namespace, self.tenant))
+        self.default_timeout = DEFAULTS["TIMEOUT"]
+        self.auth_enabled = self.ak and self.sk
+        self.cai_enabled = True
+        self.pulling_timeout = DEFAULTS["PULLING_TIMEOUT"]
+        self.pulling_config_size = DEFAULTS["PULLING_CONFIG_SIZE"]
+        self.callback_thread_num = DEFAULTS["CALLBACK_THREAD_NUM"]
+        self.failover_base = DEFAULTS["FAILOVER_BASE"]
+        self.snapshot_base = DEFAULTS["SNAPSHOT_BASE"]
+        self.no_snapshot = False
+        self.proxies = None
+        self.logDir = logDir
+        self.tenant = self.__get_tenant()
+        logger.info("[client-init] endpoint:%s, namespace:%s, tenant:%s" % (endpoint, namespace, self.tenant))
 
     def __get_tenant(self):
         if self.namespace == '':
             tenant = ''
         else:
             resp = self._do_sync_req('/nacos/v1/console/namespaces', None, None, None, self.default_timeout,
-                              "GET", "namespaces")
+                                     "GET", "namespaces")
             c = resp.read()
             content = json.loads(c.decode("UTF-8"))
             for item in content['data']:
@@ -450,8 +445,8 @@ class NacosClient:
         except HTTPError as e:
             if e.code == HTTPStatus.FORBIDDEN:
                 logger.info(
-                  "[publish] publish content fail result code :403, group:%s, data_id:%s" % (
-                    group, data_id))
+                    "[publish] publish content fail result code :403, group:%s, data_id:%s" % (
+                        group, data_id))
                 raise NacosException("Insufficient privilege.")
             else:
                 raise NacosException("Request Error, code is %s" % e.code)
@@ -855,7 +850,7 @@ class NacosClient:
                 if not watcher.last_md5 == md5:
                     logger.info(
                         "[process-polling-result] md5 changed since last call, calling %s with changed md5: %s ,params: %s"
-                        % (watcher.callback.__name__,md5, params))
+                        % (watcher.callback.__name__, md5, params))
                     try:
                         self.callback_tread_pool.apply(watcher.callback, (params,))
                     except Exception as e:
@@ -930,9 +925,8 @@ class NacosClient:
             else:
                 params["metadata"] = metadata
 
-
     def add_naming_instance(self, service_name, ip, port, cluster_name=None, weight=1.0, metadata=None,
-                            enable=True, healthy=True, ephemeral=True,group_name=DEFAULT_GROUP_NAME):
+                            enable=True, healthy=True, ephemeral=True, group_name=DEFAULT_GROUP_NAME):
         logger.info("[add-naming-instance] ip:%s, port:%s, service_name:%s, namespace:%s" % (
             ip, port, service_name, self.namespace))
 
@@ -953,7 +947,8 @@ class NacosClient:
             params["namespaceId"] = self.tenant
 
         try:
-            resp = self._do_sync_req("/nacos/v1/ns/instance", None, None, params, self.default_timeout, "POST", "naming")
+            resp = self._do_sync_req("/nacos/v1/ns/instance", None, None, params, self.default_timeout, "POST",
+                                     "naming")
             c = resp.read()
             logger.info("[add-naming-instance] ip:%s, port:%s, service_name:%s, namespace:%s, server response:%s" % (
                 ip, port, service_name, self.namespace, c))
@@ -967,7 +962,8 @@ class NacosClient:
             logger.exception("[add-naming-instance] exception %s occur" % str(e))
             raise
 
-    def remove_naming_instance(self, service_name, ip, port, cluster_name=None, ephemeral=True,group_name=DEFAULT_GROUP_NAME):
+    def remove_naming_instance(self, service_name, ip, port, cluster_name=None, ephemeral=True,
+                               group_name=DEFAULT_GROUP_NAME):
         logger.info("[remove-naming-instance] ip:%s, port:%s, service_name:%s, namespace:%s" % (
             ip, port, service_name, self.namespace))
 
@@ -976,7 +972,7 @@ class NacosClient:
             "port": port,
             "serviceName": service_name,
             "ephemeral": ephemeral,
-            "groupName":group_name
+            "groupName": group_name
         }
 
         if cluster_name is not None:
@@ -986,7 +982,8 @@ class NacosClient:
             params["namespaceId"] = self.tenant
 
         try:
-            resp = self._do_sync_req("/nacos/v1/ns/instance", None, None, params, self.default_timeout, "DELETE", "naming")
+            resp = self._do_sync_req("/nacos/v1/ns/instance", None, None, params, self.default_timeout, "DELETE",
+                                     "naming")
             c = resp.read()
             logger.info("[remove-naming-instance] ip:%s, port:%s, service_name:%s, namespace:%s, server response:%s" % (
                 ip, port, service_name, self.namespace, c))
@@ -1001,7 +998,7 @@ class NacosClient:
             raise
 
     def modify_naming_instance(self, service_name, ip, port, cluster_name=None, weight=None, metadata=None,
-                               enable=None, ephemeral=True,group_name=DEFAULT_GROUP_NAME):
+                               enable=None, ephemeral=True, group_name=DEFAULT_GROUP_NAME):
         logger.info("[modify-naming-instance] ip:%s, port:%s, service_name:%s, namespace:%s" % (
             ip, port, service_name, self.namespace))
 
@@ -1069,7 +1066,8 @@ class NacosClient:
             params['groupName'] = group_name
 
         try:
-            resp = self._do_sync_req("/nacos/v1/ns/instance/list", None, params, None, self.default_timeout, "GET", "naming")
+            resp = self._do_sync_req("/nacos/v1/ns/instance/list", None, params, None, self.default_timeout, "GET",
+                                     "naming")
             c = resp.read()
             logger.info("[list-naming-instance] service_name:%s, namespace:%s, server response:%s" %
                         (service_name, self.namespace, c))
@@ -1115,7 +1113,8 @@ class NacosClient:
             logger.exception("[get-naming-instance] exception %s occur" % str(e))
             raise
 
-    def send_heartbeat(self, service_name, ip, port, cluster_name=None, weight=1.0, metadata=None, ephemeral=True,group_name=DEFAULT_GROUP_NAME):
+    def send_heartbeat(self, service_name, ip, port, cluster_name=None, weight=1.0, metadata=None, ephemeral=True,
+                       group_name=DEFAULT_GROUP_NAME):
         logger.info("[send-heartbeat] ip:%s, port:%s, service_name:%s, namespace:%s" % (ip, port, service_name,
                                                                                         self.namespace))
         beat_data = {
@@ -1146,7 +1145,8 @@ class NacosClient:
             params["namespaceId"] = self.tenant
 
         try:
-            resp = self._do_sync_req("/nacos/v1/ns/instance/beat", None, params, None, self.default_timeout, "PUT", "naming")
+            resp = self._do_sync_req("/nacos/v1/ns/instance/beat", None, params, None, self.default_timeout, "PUT",
+                                     "naming")
             c = resp.read()
             logger.info("[send-heartbeat] ip:%s, port:%s, service_name:%s, namespace:%s, server response:%s" %
                         (ip, port, service_name, self.namespace, c))
@@ -1254,6 +1254,16 @@ class NacosClient:
         """
         self.subscribe_timer_manager.stop()
 
+    def __getstate__(self):
+        self_dict = self.__dict__.copy()
+        # pool object cannot be passed
+        del self_dict['callback_tread_pool']
+        # weak-ref object cannot be pickled
+        del self_dict['process_mgr']
+        return self_dict
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
 if DEBUG:
     NacosClient.set_debugging()
