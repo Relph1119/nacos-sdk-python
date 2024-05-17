@@ -277,7 +277,7 @@ class NacosClient:
         logger.addHandler(file_handler)
 
     def __init__(self, server_addresses=None, endpoint=None, namespace=None, ak=None,
-                 sk=None, username=None, password=None, logDir=None):
+                 sk=None, username=None, password=None, logDir=None, auth_key=None, auth_value=None):
         self.server_list = list()
         self.init_log(logDir)
         try:
@@ -313,7 +313,10 @@ class NacosClient:
         self.sk = sk
         self.username = username
         self.password = password
-
+        if auth_key and auth_value:
+            self.auth_headers = {auth_key: auth_value}
+        else:
+            self.auth_headers = {}
         if platform.system() == "windows":
             self.server_list_lock = RLock()
         else:
@@ -693,7 +696,7 @@ class NacosClient:
                     puller_info[0].terminate()
 
     def _do_sync_req(self, url, headers=None, params=None, data=None, timeout=None, method="GET", module="config"):
-        all_headers = {}
+        all_headers = self.auth_headers
         if headers:
             all_headers.update(headers)
         all_params = {}
@@ -942,8 +945,7 @@ class NacosClient:
                 params["metadata"] = metadata
 
     def add_naming_instance(self, service_name, ip, port, cluster_name=None, weight=1.0, metadata=None,
-                            enable=True, healthy=True, ephemeral=True, group_name=DEFAULT_GROUP_NAME,
-                            ak=None, sk=None):
+                            enable=True, healthy=True, ephemeral=True, group_name=DEFAULT_GROUP_NAME):
         logger.info("[add-naming-instance] ip:%s, port:%s, service_name:%s, namespace:%s" % (
             ip, port, service_name, self.namespace))
 
@@ -957,8 +959,8 @@ class NacosClient:
             "clusterName": cluster_name,
             "ephemeral": ephemeral,
             "groupName": group_name,
-            "ak": ak,
-            "sk": sk
+            "ak": self.ak,
+            "sk": self.sk
         }
         self._build_metadata(metadata, params)
 

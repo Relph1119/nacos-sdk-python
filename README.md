@@ -16,7 +16,7 @@ Python 3.9
 Python 3.10
 
 ### Supported Nacos version
-Nacos 0.8.0 ~ 1.3.2
+Nacos 0.8.0 ~ 2.2.3
 
 
 ## Installation
